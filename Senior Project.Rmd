@@ -1,0 +1,283 @@
+---
+title: "Senior Project: Human Trafficking Data Analysis"
+author: "Jacob Oliver"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Introduction
+
+Human trafficking is a problem that still exists today. In analyzing the Global Dataset from the Counter Trafficking Data Collabrative (CTDC), we observe various descriptors on specific instances of human trafficking in the past two decades. By combining this dataset with three other datasets, we can observe the ways that other factors about the country of exploitation may be related to the facts concerning trafficking. The three datasets that are combined with the original dataset are from Gapminder.org and contain statistics on specific countries' GDP per capita (in dollars), estimated HIV prevalence (percent, Ages 15-49), and alcohol consumption per adult (in liters). An additional dataset was merged with the CTDC dataset to translate each country's alpha code to the country's actual name. Multiple final datasets were yielded, as we aggregated on the country of exploitation to find percentages of statistics for these countries, and we combined some yearly statistics into averages over each decade. This resulted in datasets with various combinations of reduced or unreduced yearly data and aggregated or unaggregated trafficking data.
+
+```{r}
+setwd("/Users/Jake/Desktop/Senior Project")
+```
+
+
+
+### Reading in Data
+
+#### Human Trafficking Dataset
+```{r}
+# Load necessary packages
+library(xlsx)
+library(plyr)
+library(dplyr)
+library(tidyr)
+
+# Read in main human trafficking dataset
+human <- read.csv("The Global Dataset 3 Sept 2018.csv", header = TRUE, as.is = "CountryOfExploitation")[,-1]
+
+```
+
+
+#### HIV Prevalence Dataset
+```{r}
+
+# Read in HIV prevalence dataset
+sex_ratio <- read.xlsx("indicator hiv estimated prevalence% 15-49.xlsx", 1)
+
+# Changing column values to numeric
+sex_ratio$X2009 <- as.numeric(sex_ratio$X2009)
+sex_ratio$X2010 <- as.numeric(sex_ratio$X2010)
+sex_ratio$X2011 <- as.numeric(sex_ratio$X2011)
+
+# Renaming Country Name column
+names(sex_ratio)[1] <- "CountryName"
+# Remove years 1979-1989 from dataset since so much data is missing from those years
+sex_ratio <- subset(sex_ratio, select = -(2:12))
+sex_ratio_red <- sex_ratio
+
+# Create columns for averages of each decade in the dataset
+sex_ratio_red$Avg90to99Sex <- rowMeans(sex_ratio_red[,-c(1, 12:23)])
+sex_ratio_red$AvgAfter2000Sex <- rowMeans(sex_ratio_red[,-c(1:11, 24)])
+
+# Combine averages for each decades into "reduced" dataset
+sex_ratio_red <- subset(sex_ratio_red, select = c("CountryName", "Avg90to99Sex", "AvgAfter2000Sex"))
+
+```
+
+
+#### Alcohol Consumption Dataset
+```{r}
+
+# Read in alcohol consumption dataset
+alcohol <- read.xlsx("indicator alcohol consumption  20100830.xlsx", 1)
+
+# Remove all years but 2005 and 2008, since only 2005 and 2008 have values for all countries in the dataset
+alcohol <- subset(alcohol, select = -c(2:21,23:24))
+names(alcohol)[1] <- "Country"
+
+# Take averages for the remaining years
+alcohol$AverageAlcohol <- rowMeans(alcohol[,-1])
+alcohol <- subset(alcohol, select = c("Country", "AverageAlcohol"))
+
+```
+
+#### GDP Dataset
+```{r}
+
+# Read in gdp dataset
+gdp <- read.xlsx("GDPpercapitaconstant2000US.xlsx", 1)
+
+# Rename Country column
+names(gdp)[1] <- "Country"
+
+# Remove years before 1990, since data is more spotty for those years
+gdp <- subset(gdp, select = -(2:31))
+
+# Create reduced version of GDP dataset where multiple years are condensed
+gdp_red <- gdp
+gdp_red$Avg90to99GDP <- rowMeans(gdp[,-c(1, 12:23)])
+gdp_red$AvgAfter2000GDP <- rowMeans(gdp[,-c(1:11, 24)])
+gdp_red <- subset(gdp_red, select = c("Country", "Avg90to99GDP", "AvgAfter2000GDP"))
+
+```
+
+
+#### Alpha Codes
+```{r}
+
+# Load alpha codes dataset to merge country names into dataset
+alpha_codes <- read.csv("data.csv", colClasses = "character")
+
+# Change certain country names in alpha codes dataset to match other datasets
+alpha_codes <- alpha_codes %>%
+  mutate(Name = replace(Name, Name == "Moldova, Republic of", "Moldova")) %>%
+  mutate(Name = replace(Name, Name == "Russian Federation", "Russia")) %>%
+  mutate(Name = replace(Name, Name == "Taiwan, Province of China", "Taiwan")) %>%
+  mutate(Name = replace(Name, Name == "Syrian Arab Republic", "Syria")) %>%
+  mutate(Name = replace(Name, Name == "Macedonia, the Former Yugoslav Republic of", "Macedonia, FYR")) %>%
+  mutate(Name = replace(Name, Name == "Hong Kong", "Hong Kong, China")) %>%
+  mutate(Name = replace(Name, Name == "Viet Nam", "Vietnam")) %>%
+  mutate(Name = replace(Name, Name == "Korea, Republic of", "United Korea (former)\n")) %>%
+  mutate(Name = replace(Name, Name == "Kyrgyzstan", "Kyrgyz Republic")) %>%
+  mutate(Name = replace(Name, Name == "Bolivia, Plurinational State of", "Bolivia")) %>%
+  mutate(Name = replace(Name, Name == "Lao People's Democratic Republic", "Lao")) %>%
+  mutate(Name = replace(Name, Name == "Côte d'Ivoire", "Cote d'Ivoire")) %>%
+  mutate(Name = replace(Name, Name == "Congo, the Democratic Republic of the", "Congo, Rep."))
+  
+# Change human dataset to DataFrame
+df_human <- as.data.frame(human)
+
+# Encode missing values as null values
+df_human[df_human==-99] <- NA
+```
+
+
+### Joining Datasets for Country Names
+
+```{r}
+# We will only use observations where both the country of citizenship and country of exploitation are known
+df_human_1 <- merge(df_human, alpha_codes, by.x = "citizenship", by.y = "Code")
+colnames(df_human_1)[colnames(df_human_1)=="Name"] <- "CountryOfCitizenship"
+df_human_2 <- merge(df_human_1, alpha_codes, by.x = "CountryOfExploitation", by.y = "Code")
+colnames(df_human_2)[colnames(df_human_2)=="Name"] <- "CountryOfExploitationName"
+
+```
+
+### Joining Datasets with Country Data
+
+```{r}
+# Merge datasets that have been created
+df_human_red <- merge(df_human_2, sex_ratio_red, by.x = "CountryOfExploitationName", by.y = "CountryName")
+df_human_red <- merge(df_human_red, alcohol, by.x = "CountryOfExploitationName", by.y = "Country")
+df_human_red <- merge(df_human_red, gdp_red, by.x = "CountryOfExploitationName", by.y = "Country")
+
+```
+
+
+
+### Aggregating on Country Of Exploitation
+
+```{r}
+
+# Drop all factor variables except for CountryOfExploitation to aggregate on CountryOfExplotation
+
+# Column names to be dropped
+drops <- c("yearOfRegistration", "Datasource", "gender", "ageBroad", "majorityStatus", "majorityStatusAtExploit", "majorityEntry", "citizenship", "RecruiterRelationship", "typeOfExploitConcatenated", "typeOfLabourConcatenated", "typeOfSexConcatenated", "meansOfControlConcatenated")
+
+# Drop columns
+df_agg <- df_human[, !(names(df_human) %in% drops)]
+
+# Change nulls to zeroes
+df_agg[is.na(df_agg)] <- 0
+
+# Aggregate on CountryOfExploitation
+df_agg <- aggregate(df_agg[, !names(df_agg) %in% c("CountryOfExploitation")], by = list(df_agg$CountryOfExploitation), FUN = mean)
+
+# Change column names
+colnames(df_agg)[1] <- "CountryOfExploitation"
+```
+
+### Merging Aggregated Data With Additional Data
+
+```{r}
+# Creating one DataFrame containing all the years and one DataFrame with all years averaged
+
+# Merging averaged DataFrame
+df_agg_temp <- merge(df_agg, alpha_codes, by.x = "CountryOfExploitation", by.y = "Code")
+colnames(df_agg_temp)[colnames(df_agg_temp)=="Name"] <- "CountryOfExploitationName"
+df_agg_temp <- merge(df_agg_temp, sex_ratio_red, by.x = "CountryOfExploitationName", by.y = "CountryName")
+df_agg_temp <- merge(df_agg_temp, alcohol, by.x = "CountryOfExploitationName", by.y = "Country")
+df_agg_temp <- merge(df_agg_temp, gdp_red, by.x = "CountryOfExploitationName", by.y = "Country")
+
+# Merging DataFrame with all years
+df_agg_allyears <- merge(df_agg, alpha_codes, by.x = "CountryOfExploitation", by.y = "Code")
+colnames(df_agg_allyears)[colnames(df_agg_allyears)=="Name"] <- "CountryOfExploitationName"
+df_agg_allyears <- merge(df_agg_allyears, sex_ratio, by.x = "CountryOfExploitationName", by.y = "CountryName")
+df_agg_allyears <- merge(df_agg_allyears, alcohol, by.x = "CountryOfExploitationName", by.y = "Country")
+df_agg_allyears <- merge(df_agg_allyears, gdp, by.x = "CountryOfExploitationName", by.y = "Country")
+
+# Change temporary DataFrame to original DataFrame
+df_agg <- df_agg_temp
+
+```
+
+
+#### Name HIV and GDP Columns in DataFrame
+```{r}
+# Iterate through columns and paste names in corresponding indices
+sex.index <- 51
+gdp.index <- 74
+for (year in 1990:2011){
+  # Renaming columns
+  names(df_agg_allyears)[sex.index] <- paste("Sex", year, sep = "")
+  names(df_agg_allyears)[gdp.index] <- paste("GDP", year, sep = "")
+  
+  # Increasing indices
+  sex.index <- sex.index + 1
+  gdp.index <- gdp.index + 1
+}
+```
+## Statistical Analysis
+
+#### Percentage of Sexual Exploit Cases for Countries
+
+The first question we'll ask is what factors could be related to what percentage of human trafficking instances are sexual exploitation in specific countries.
+
+```{r}
+# Using aggregated dataset, we're looking at percentages of the total instances of trafficking for each country
+
+# Use all variables in question
+lm.fit <- lm(isSexualExploit~Avg90to99Sex+AvgAfter2000Sex+Avg90to99GDP+AvgAfter2000GDP+AverageAlcohol, data = df_agg)
+summary(lm.fit)
+```
+
+There doesn't seem to be a correlation between the percentage of human trafficking instances that are sexual exploitation and the given independent variables all together.
+
+```{r}
+# Check if the specific independent variables have significance by themselves
+
+# HIV as Independent Variable
+lm.fit <- lm(isSexualExploit~Avg90to99Sex+AvgAfter2000Sex, data = df_agg)
+summary(lm.fit)
+
+# GDP as Independent Variable
+lm.fit <- lm(isSexualExploit~Avg90to99GDP+AvgAfter2000GDP, data = df_agg)
+summary(lm.fit)
+
+# Alcohol as Independent Variable
+lm.fit <- lm(isSexualExploit~AverageAlcohol, data = df_agg)
+summary(lm.fit)
+```
+
+Only the intercept for the linear model using the average HIV prevalence was even close to significant (t-value: 3.42), which doesn't tell us much. None of the chosen independent variables appear to have a strong correlation with the response when isolated. Alcohol consumption per adult is a variable that is close to significant (t-value: 1.82) in its own model, yet as it's p-value is still not below .05, we cannot conclude its significance.
+
+
+
+#### Percentage of Control through Debt Bondage for Countries
+
+The second question we'll ask is what factors could be related to what percentage of human trafficking instances involve control though debt bondage in specific countries.
+
+```{r}
+# Using all variables in question
+lm.fit <- lm(meansOfControlDebtBondage~Avg90to99Sex+AvgAfter2000Sex+Avg90to99GDP+AvgAfter2000GDP+AverageAlcohol, data = df_agg)
+summary(lm.fit)
+```
+There doesn't seem to be a correlation between the percentage of human trafficking instances that involve control through debt bondage and the given independent variables all together.
+
+```{r}
+# Check if the specific independent variables have significance by themselves
+
+# HIV
+lm.fit <- lm(meansOfControlDebtBondage~Avg90to99Sex+AvgAfter2000Sex, data = df_agg)
+summary(lm.fit)
+
+# GDP
+lm.fit <- lm(meansOfControlDebtBondage~Avg90to99GDP+AvgAfter2000GDP, data = df_agg)
+summary(lm.fit)
+
+# Alcohol
+lm(meansOfControlDebtBondage~AverageAlcohol, data = df_agg)
+summary(lm.fit)
+```
+
+Only the intercept for each of the linear models were close to significant (t-values: 2.13, 2.23, & 2.23), which, again, doesn't tell us much. None of the chosen independent variables appear to have a strong correlation with the response when isolated.
+
+
+## Conclusion
+
+While missing data prevented a more thorough statistical analysis, the results that were found were nonetheless interesting. It was relatively surprising to not be able to find a significant conclusion with both of the questions posed. Thus, it appears that there is not necessarily a strong relationship between the variables concerning countries gathered from Gapminder and the specific response variables from the questions. While that certainly doesn't mean that we lack any kind of correlation between these variables, these results certainly make it seem like there likely at least isn't a strong correlation.
+
